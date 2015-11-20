@@ -182,6 +182,6 @@ class Duplicitous(attributes: Boolean, text: Boolean, comments: Boolean, cdata: 
         timed(s"Processed document ${src.path} in") {
           xmlProcessor.rewrite(src, os)(rewriter)
         }
-    }.either.left.toOption
+    }.either.left.map(Some(_)).merge
   }
 }
