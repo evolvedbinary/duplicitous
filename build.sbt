@@ -19,7 +19,7 @@ libraryDependencies ++= {
     "org.scalaz" %% "scalaz-concurrent" % scalazV,
     "org.scalaz.stream" %% "scalaz-stream" % "0.8",
     "org.clapper" %% "grizzled-slf4j" % "1.0.2",
-    "com.fasterxml" % "aalto-xml" % "0.9.11",
+    "com.fasterxml" % "aalto-xml" % "1.0.0",
 
     "org.slf4j" % "slf4j-simple" % "1.7.13" % "runtime"
   )
