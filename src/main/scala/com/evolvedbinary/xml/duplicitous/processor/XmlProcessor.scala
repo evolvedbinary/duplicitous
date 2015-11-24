@@ -8,7 +8,7 @@ import java.nio.ByteBuffer
 import java.nio.channels.SeekableByteChannel
 import java.nio.file.{Files, Paths, StandardOpenOption}
 import javax.xml.stream.XMLStreamConstants._
-import javax.xml.stream.XMLStreamWriter
+import javax.xml.stream.{XMLInputFactory, XMLStreamWriter}
 
 import com.evolvedbinary.xml.duplicitous.processor.XmlProcessor._
 import com.evolvedbinary.xml.duplicitous.rewriter.{IdentityRewriter, Rewriter}
@@ -121,6 +121,8 @@ class XmlProcessor(attributes: Boolean = false, text: Boolean = false, comments:
 
     val inputFactory = new InputFactoryImpl()
     inputFactory.configureForSpeed()
+    inputFactory.setProperty(XMLInputFactory.SUPPORT_DTD, false)
+    inputFactory.setProperty(XMLInputFactory.IS_VALIDATING, false)
 
     val outputFactory = new OutputFactoryImpl()
     outputFactory.configureForSpeed()
