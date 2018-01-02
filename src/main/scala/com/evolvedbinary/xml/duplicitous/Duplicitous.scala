@@ -3,18 +3,19 @@
  */
 package com.evolvedbinary.xml.duplicitous
 
+import java.util.regex.{Pattern, PatternSyntaxException}
+
 import com.evolvedbinary.xml.duplicitous.processor.XmlProcessor
 import com.evolvedbinary.xml.duplicitous.rewriter.WordLengthRewriter
 import grizzled.slf4j.Logger
 
 import scala.annotation.tailrec
-import scalax.file.{PathSet, Path}
+import scalax.file.{Path, PathMatcher, PathSet}
 import scalax.file.PathMatcher.IsFile
 import scalax.io.StandardOpenOption
 import scalaz._
 import Scalaz._
 import scalaz.concurrent.Task
-
 import com.evolvedbinary.xml.duplicitous.dictionary.{Dictionary, WordsByLengthDictionary}
 import scopt.OptionParser
 
@@ -25,8 +26,7 @@ object DuplicitousApp extends App {
   private val EXIT_CODE_PROCESSING_ERROR = 2
   private val DEFAULT_DICT = Path.fromString("/usr/share/dict/words")
 
-  //TODO(AR) consider a filter arg, so that we only process source files that match a pattern e.g. *.xml
-  private case class Args(ignoreAttributes: Boolean = false, ignoreText: Boolean = false, ignoreComments: Boolean = false, ignoreCdata: Boolean = false, recursive: Boolean = false, groupSize: Int = 4, dictionary: Path = DEFAULT_DICT, src: Option[Path] = None, dest: Option[Path] = None)
+  private case class Args(ignoreAttributes: Boolean = false, ignoreText: Boolean = false, ignoreComments: Boolean = false, ignoreCdata: Boolean = false, recursive: Boolean = false, includes: Option[String] = None, groupSize: Int = 4, dictionary: Path = DEFAULT_DICT, src: Option[Path] = None, dest: Option[Path] = None)
 
   //used by the scopt parser below
   private implicit val pathRead: scopt.Read[Path] = scopt.Read.reads(Path.fromString(_))
@@ -49,6 +49,9 @@ object DuplicitousApp extends App {
     opt[Unit]('r', "recursive") action { (x, c) =>
       c.copy(recursive = true)
     } text ("Recursively process files in all descendant directories")
+    opt[String]('i', "includes") action { (x, c) =>
+      c.copy(includes = Some(x))
+    } text ("Pattern for filenames to include when processing a directory")
     opt[Int]('g', "group-size") action { (x, c) =>
       c.copy(groupSize = x)
     } text (s"The number of files to place in a group (thread). If not provided then 4 is assumed")
@@ -72,6 +75,18 @@ object DuplicitousApp extends App {
       } else {
         failure("Default dictionary file does not exist")
       }
+
+      if (c.includes.nonEmpty) {
+        try {
+          Pattern.compile(c.includes.get)
+          success
+        } catch {
+          case e : PatternSyntaxException =>
+            failure(s"Includes pattern is invalid: ${e.getMessage}")
+        }
+      } else {
+        success
+      }
     }
   }
 
@@ -81,7 +96,7 @@ object DuplicitousApp extends App {
         WordsByLengthDictionary.load(parsedArgs.dictionary).map {
           dictionary =>
             new Duplicitous(!parsedArgs.ignoreAttributes, !parsedArgs.ignoreText, !parsedArgs.ignoreComments, !parsedArgs.ignoreCdata, dictionary)
-              .process(parsedArgs.src.get, parsedArgs.dest.get, parsedArgs.recursive, parsedArgs.groupSize) match {
+              .process(parsedArgs.src.get, parsedArgs.dest.get, parsedArgs.recursive, parsedArgs.includes, parsedArgs.groupSize) match {
               case Some(errors) =>
                 for (error <- errors) {
                   logger.error(error.getMessage, error)
@@ -120,11 +135,12 @@ class Duplicitous(attributes: Boolean, text: Boolean, comments: Boolean, cdata: 
     * @param src The source file or directory
     * @param dest The destination file or directory
     * @param recursive If the src is a directory, should we recursively process all files in all sub-directories
+    * @param includes If the src is a directory, then an optional pattern to match on filenames to process
     * @param groupSize The number of files to process in each group (thread)
     *
     * @return Any errors that may have occurred
     */
-  def process(src: Path, dest: Path, recursive: Boolean = false, groupSize: Int = 4) : Option[Seq[Throwable]] = {
+  def process(src: Path, dest: Path, recursive: Boolean = false, includes: Option[String] = None, groupSize: Int = 4) : Option[Seq[Throwable]] = {
     if(!src.exists) {
       Some(Seq(new IllegalArgumentException("src does not exist")))
     } else {
@@ -136,17 +152,19 @@ class Duplicitous(attributes: Boolean, text: Boolean, comments: Boolean, cdata: 
         if (dest.isFile) {
           Some(Seq(new IllegalArgumentException("src is a directory, but dest is a file")))
         } else {
-          processDirectory(src, dest, recursive, groupSize)
+          processDirectory(src, dest, recursive, includes, groupSize)
         }
       }
     }
   }
 
-  private def processDirectory(src: Path, dest: Path, recursive: Boolean, groupSize: Int) : Option[Seq[Throwable]] = {
+  private def processDirectory(src: Path, dest: Path, recursive: Boolean, includes: Option[String], groupSize: Int) : Option[Seq[Throwable]] = {
+    val fileFilter = includes.map(ptn => IsFile && src.fileSystem.matcher(ptn, PathMatcher.StandardSyntax.REGEX)).getOrElse(IsFile)
+
     val files = if(recursive) {
-      src.descendants(filter = IsFile)
+      src.descendants(filter = fileFilter)
     } else {
-      src.children(filter = IsFile)
+      src.children(filter = fileFilter)
     }
 
     // create task groups, 4 files per group (or groupSize if given as an arg)
