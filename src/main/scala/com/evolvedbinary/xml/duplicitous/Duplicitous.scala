@@ -26,7 +26,7 @@ object DuplicitousApp extends App {
   private val DEFAULT_DICT = Path.fromString("/usr/share/dict/words")
 
   //TODO(AR) consider a filter arg, so that we only process source files that match a pattern e.g. *.xml
-  private case class Args(ignoreAttributes: Boolean = false, ignoreText: Boolean = false, ignoreComments: Boolean = false, ignoreCdata: Boolean = false, recursive: Boolean = false, dictionary: Path = DEFAULT_DICT, src: Option[Path] = None, dest: Option[Path] = None)
+  private case class Args(ignoreAttributes: Boolean = false, ignoreText: Boolean = false, ignoreComments: Boolean = false, ignoreCdata: Boolean = false, recursive: Boolean = false, groupSize: Int = 4, dictionary: Path = DEFAULT_DICT, src: Option[Path] = None, dest: Option[Path] = None)
 
   //used by the scopt parser below
   private implicit val pathRead: scopt.Read[Path] = scopt.Read.reads(Path.fromString(_))
@@ -49,6 +49,9 @@ object DuplicitousApp extends App {
     opt[Unit]('r', "recursive") action { (x, c) =>
       c.copy(recursive = true)
     } text ("Recursively process files in all descendant directories")
+    opt[Int]('g', "group-size") action { (x, c) =>
+      c.copy(groupSize = x)
+    } text (s"The number of files to place in a group (thread). If not provided then 4 is assumed")
     opt[Path]('d', "dictionary") action { (x, c) =>
       c.copy(dictionary = x)
     } validate (fileExists) text (s"A dictionary of words to use for substitutions. If not provided then ${DEFAULT_DICT.path} is assumed")
@@ -74,18 +77,20 @@ object DuplicitousApp extends App {
 
   parser.parse(args, Args()) match {
     case Some(parsedArgs) =>
-      WordsByLengthDictionary.load(parsedArgs.dictionary).map {
-        dictionary =>
-          new Duplicitous(!parsedArgs.ignoreAttributes, !parsedArgs.ignoreText, !parsedArgs.ignoreComments, !parsedArgs.ignoreCdata, dictionary)
-            .process(parsedArgs.src.get, parsedArgs.dest.get, parsedArgs.recursive) match {
+      timed(s"Total processing time") {
+        WordsByLengthDictionary.load(parsedArgs.dictionary).map {
+          dictionary =>
+            new Duplicitous(!parsedArgs.ignoreAttributes, !parsedArgs.ignoreText, !parsedArgs.ignoreComments, !parsedArgs.ignoreCdata, dictionary)
+              .process(parsedArgs.src.get, parsedArgs.dest.get, parsedArgs.recursive, parsedArgs.groupSize) match {
               case Some(errors) =>
                 for (error <- errors) {
                   logger.error(error.getMessage, error)
                   System.exit(EXIT_CODE_PROCESSING_ERROR)
                 }
               case None =>
-                //done, all ok :-)
+              //done, all ok :-)
             }
+        }
       }
 
     case None =>
@@ -115,10 +120,11 @@ class Duplicitous(attributes: Boolean, text: Boolean, comments: Boolean, cdata: 
     * @param src The source file or directory
     * @param dest The destination file or directory
     * @param recursive If the src is a directory, should we recursively process all files in all sub-directories
+    * @param groupSize The number of files to process in each group (thread)
     *
     * @return Any errors that may have occurred
     */
-  def process(src: Path, dest: Path, recursive: Boolean = false) : Option[Seq[Throwable]] = {
+  def process(src: Path, dest: Path, recursive: Boolean = false, groupSize: Int = 4) : Option[Seq[Throwable]] = {
     if(!src.exists) {
       Some(Seq(new IllegalArgumentException("src does not exist")))
     } else {
@@ -130,20 +136,21 @@ class Duplicitous(attributes: Boolean, text: Boolean, comments: Boolean, cdata: 
         if (dest.isFile) {
           Some(Seq(new IllegalArgumentException("src is a directory, but dest is a file")))
         } else {
-          processDirectory(src, dest, recursive)
+          processDirectory(src, dest, recursive, groupSize)
         }
       }
     }
   }
 
-  private def processDirectory(src: Path, dest: Path, recursive: Boolean) : Option[Seq[Throwable]] = {
+  private def processDirectory(src: Path, dest: Path, recursive: Boolean, groupSize: Int) : Option[Seq[Throwable]] = {
     val files = if(recursive) {
       src.descendants(filter = IsFile)
     } else {
       src.children(filter = IsFile)
     }
 
-    val fileTasks = files.sliding(4, 4) //TODO(AR) make configurable, ...or calculate based on a max number of parallel futures
+    // create task groups, 4 files per group (or groupSize if given as an arg)
+    val fileTasks = files.sliding(groupSize, groupSize)
       .toSeq
       .map(processFiles(_, src, dest))
 
