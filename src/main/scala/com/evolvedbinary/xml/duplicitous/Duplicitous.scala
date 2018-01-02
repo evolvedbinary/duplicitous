@@ -35,25 +35,33 @@ object DuplicitousApp extends App {
   private val parser = new OptionParser[Args]("duplicitous") {
     head("duplicitous", "1.0")
     opt[Unit]("ignore-attributes") action { (x, c) =>
-      c.copy(ignoreAttributes = true) } text("Ignore attribute values when rewriting")
+      c.copy(ignoreAttributes = true)
+    } text ("Ignore attribute values when rewriting")
     opt[Unit]("ignore-text") action { (x, c) =>
-      c.copy(ignoreText = true) } text("Ignore text nodes when rewriting")
+      c.copy(ignoreText = true)
+    } text ("Ignore text nodes when rewriting")
     opt[Unit]("ignore-comments") action { (x, c) =>
-      c.copy(ignoreComments = true) } text("Ignore the text of comments when rewriting")
+      c.copy(ignoreComments = true)
+    } text ("Ignore the text of comments when rewriting")
     opt[Unit]("ignore-cdata") action { (x, c) =>
-      c.copy(ignoreCdata = true) } text("Ignore the text of CDATA sections when rewriting")
+      c.copy(ignoreCdata = true)
+    } text ("Ignore the text of CDATA sections when rewriting")
     opt[Unit]('r', "recursive") action { (x, c) =>
-      c.copy(recursive = true) } text("Recursively process files in all descendant directories")
+      c.copy(recursive = true)
+    } text ("Recursively process files in all descendant directories")
     opt[Path]('d', "dictionary") action { (x, c) =>
-      c.copy(dictionary = x) } validate(fileExists) text(s"A dictionary of words to use for substitutions. If not provided then ${DEFAULT_DICT.path} is assumed")
+      c.copy(dictionary = x)
+    } validate (fileExists) text (s"A dictionary of words to use for substitutions. If not provided then ${DEFAULT_DICT.path} is assumed")
     arg[Path]("<source>") action { (x, c) =>
-      c.copy(src = Some(x)) } validate(fileExists) text("The path to the input file(s)")
+      c.copy(src = Some(x))
+    } validate (fileExists) text ("The path to the input file(s)")
     arg[Path]("<destination>") action { (x, c) =>
-      c.copy(dest = Some(x)) } text("Path to write the output file(s) to")
-    help("help") text("Prints this usage text")
+      c.copy(dest = Some(x))
+    } text ("Path to write the output file(s) to")
+    help("help") text ("Prints this usage text")
     checkConfig { c =>
-      if(c.dictionary.exists) {
-        if(c.src.map(_.isDirectory).getOrElse(false) && c.dest.map(_.isFile).getOrElse(false)) {
+      if (c.dictionary.exists) {
+        if (c.src.map(_.isDirectory).getOrElse(false) && c.dest.map(_.isFile).getOrElse(false)) {
           failure("Source is a directory, but destination is a file")
         } else {
           success
